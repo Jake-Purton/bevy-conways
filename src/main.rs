@@ -64,11 +64,8 @@ fn swap_colours (
     let handle = Handle::weak(id.0);
 
     if let Some(image) = images.get_mut(&handle) {
-
-        // println!("{:?}", image.size());
-
         for i in 0..409600 {
-            image.data[i] = 255;
+            image.data[i] = 0;
         }
     }
 }
