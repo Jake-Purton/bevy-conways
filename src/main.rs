@@ -29,20 +29,25 @@ fn main() {
                     default_sampler: ImageSampler::nearest_descriptor(),
                 }),
         )
+        .insert_resource(GameOfLifeNewImage(None))
         .insert_resource(ClearColor(Color::BLACK))
         .add_startup_system(setup)
         .add_system(swap_colours)
         .run();
 }
 
-const CONWAYS_MAP_SIZE: Vec2 = Vec2::new(160.0, 160.0);
+const CONWAYS_MAP_SIZE: Vec2 = Vec2::new(200.0, 200.0);
 const CONWAYS_SCREEN_SIZE: Vec2 = Vec2::new(800.0, 800.0);
+const TIMER_DURATION: Duration = Duration::from_millis(50);
 
 #[derive(Resource)]
 struct GameOfLifeTimer(Timer);
 
 #[derive(Resource)]
-struct GameOfLife(HandleId);
+struct GameOfLifeImage(HandleId);
+
+#[derive(Resource)]
+struct GameOfLifeNewImage(Option<Vec<u8>>);
 
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut image = Image::new_fill(
@@ -67,7 +72,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let image = images.add(image.clone());
     let id = image.id();
 
-    commands.insert_resource(GameOfLife(id));
+    commands.insert_resource(GameOfLifeImage(id));
 
     commands.spawn(SpriteBundle {
         sprite: Sprite {
@@ -80,53 +85,99 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 
     commands.spawn(Camera2dBundle::default());
     commands.insert_resource(GameOfLifeTimer(Timer::new(
-        Duration::from_millis(500),
+        TIMER_DURATION,
         TimerMode::Repeating,
     )))
 }
 
 fn swap_colours(
     mut images: ResMut<Assets<Image>>,
-    id: Res<GameOfLife>,
-    // time: Res<Time>,
-    // mut timer: ResMut<GameOfLifeTimer>
+    id: Res<GameOfLifeImage>,
+    time: Res<Time>,
+    mut timer: ResMut<GameOfLifeTimer>,
+    mut game_of_life_new_image: ResMut<GameOfLifeNewImage>,
 ) {
-    // timer.0.tick(time.delta());
-    // if timer.0.just_finished() {
-
+    timer.0.tick(time.delta());
+    let just_finished = timer.0.just_finished();
     let handle = Handle::weak(id.0);
 
-    if let Some(image) = images.get_mut(&handle) {
+    if just_finished && game_of_life_new_image.0.is_none() {
+        // println!("timer finished, no image");
 
-        let mut new_image: Vec<u8> = vec![0; image.data.len()];
+        if let Some(image) = images.get_mut(&handle) {
+            let mut new_image: Vec<u8> = vec![0; image.data.len()];
 
-        let old_image: Vec<u8> = image
-            .data
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| (i + 1) % 4 == 0)
-            .map(|x| *x.1)
-            .collect();
+            let old_image: Vec<u8> = image
+                .data
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| (i + 1) % 4 == 0)
+                .map(|x| *x.1)
+                .collect();
 
-        for (i, x) in old_image.iter().enumerate() {
-            let num_neighbors = count_neighbors(&old_image, i.try_into().unwrap());
+            for (i, x) in old_image.iter().enumerate() {
+                let num_neighbors = count_neighbors(&old_image, i.try_into().unwrap());
 
-            if !(2..=3).contains(&num_neighbors) {
-                new_image[i] = 0
-            } else if num_neighbors == 2 {
-                new_image[i] = *x
-            } else if num_neighbors == 3 {
-                new_image[i] = 255;
+                if !(2..=3).contains(&num_neighbors) {
+                    new_image[i] = 0
+                } else if num_neighbors == 2 {
+                    new_image[i] = *x
+                } else if num_neighbors == 3 {
+                    new_image[i] = 255;
+                }
+            }
+
+            for (i, x) in image.data.iter_mut().enumerate() {
+                if (i + 1) % 4 == 0 {
+                    *x = new_image[((i + 1) / 4) - 1];
+                }
             }
         }
+    } else if just_finished {
+        // println!("timer finished, there is an image");
 
-        for (i, x) in image.data.iter_mut().enumerate() {
-            if (i + 1) % 4 == 0 {
-                *x = new_image[((i + 1) / 4) - 1];
+        if let Some(image) = images.get_mut(&handle) {
+            let new_image = game_of_life_new_image.0.clone().unwrap();
+
+            for (i, x) in image.data.iter_mut().enumerate() {
+                if (i + 1) % 4 == 0 {
+                    *x = new_image[((i + 1) / 4) - 1];
+                }
             }
+
+            game_of_life_new_image.0 = None;
         }
+    } else if game_of_life_new_image.0.is_none() {
+        // println!("no image");
+
+        if let Some(image) = images.get_mut(&handle) {
+            let mut new_image: Vec<u8> = vec![0; image.data.len()];
+
+            let old_image: Vec<u8> = image
+                .data
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| (i + 1) % 4 == 0)
+                .map(|x| *x.1)
+                .collect();
+
+            for (i, x) in old_image.iter().enumerate() {
+                let num_neighbors = count_neighbors(&old_image, i.try_into().unwrap());
+
+                if !(2..=3).contains(&num_neighbors) {
+                    new_image[i] = 0
+                } else if num_neighbors == 2 {
+                    new_image[i] = *x
+                } else if num_neighbors == 3 {
+                    new_image[i] = 255;
+                }
+            }
+
+            game_of_life_new_image.0 = Some(new_image);
+        }
+    } else {
+        // println!("some image");
     }
-    // }
 }
 
 fn count_neighbors(image: &Vec<u8>, pixel: i32) -> i32 {
